@@ -10,6 +10,8 @@ services:
       - 8.8.4.4
     stdin_open: true
     tty: true
+    ports:
+      - 8050:8050
     command: ["gunicorn", "--reload", "-b :8050",  "-t 90", "app:app"]
     container_name: datastore
     hostname: datastore
@@ -19,26 +21,26 @@ services:
       - ./datastore/.env
     networks:
       - datastore_net 
-  datastore_client:
-    build: ./datastore_client
-    depends_on:
-      - "datastore"
-    ports:
-      - 8050:8050
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    stdin_open: true
-    tty: true
-    command: ["gunicorn", "--reload", "-b :8050",  "-t 90", "app:server"]
-    container_name: datastore_client
-    hostname: datastore_client
-    volumes:
-      - ./datastore_client/src:/app
-    env_file:
-      - ./datastore_client/.env
-    networks:
-      - datastore_net 
+  #datastore_client:
+  #  build: ./datastore_client
+  #  depends_on:
+  #    - "datastore"
+  #  ports:
+  #    - 8050:8050
+  #  dns:
+  #    - 8.8.8.8
+  #    - 8.8.4.4
+  #  stdin_open: true
+  #  tty: true
+  #  command: ["gunicorn", "--reload", "-b :8050",  "-t 90", "app:server"]
+  #  container_name: datastore_client
+  #  hostname: datastore_client
+  #  volumes:
+  #    - ./datastore_client/src:/app
+  #  env_file:
+  #    - ./datastore_client/.env
+  #  networks:
+  #    - datastore_net 
 
 networks:
   datastore_net:
