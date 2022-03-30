@@ -18,7 +18,7 @@ services:
     env_file:
       - ./datastore/.env
     networks:
-      - datastore_net 
+      - datastore_net
   datastore_client:
     build: ./datastore_client
     depends_on:
@@ -38,7 +38,7 @@ services:
     env_file:
       - ./datastore_client/.env
     networks:
-      - datastore_net 
+      - datastore_net
 
 networks:
   datastore_net:
@@ -47,4 +47,3 @@ networks:
       driver: default
       config:
           - subnet: 172.16.238.0/24
-

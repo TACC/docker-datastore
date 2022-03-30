@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Local data archives
+datastore/src/data/archive/
+
 # C extensions
 *.so
 
