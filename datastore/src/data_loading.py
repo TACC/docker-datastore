@@ -306,6 +306,83 @@ def clean_blooddata(blood_df):
 
 
 # ----------------------------------------------------------------------------
+# LOAD DATA FROM LOCAL FILES
+# ----------------------------------------------------------------------------
+
+def get_local_subjects(data_directory):
+    ''' Load subjects data from local files'''
+    try:
+        subjects1_filepath = os.path.join(data_directory,'subjects','subjects-1-latest.json')
+        with open(subjects1_filepath) as file:
+            subjects1 = json.load(file)
+
+        subjects2_filepath = os.path.join(data_directory,'subjects','subjects-2-latest.json')
+        with open(subjects2_filepath) as file:
+            subjects2 = json.load(file)
+
+         # Create combined json
+        subjects_json = {'1': subjects1, '2': subjects2}
+
+        return subjects_json
+
+    except Exception as e:
+        traceback.print_exc()
+        return {'Stats': 'Subjects data not available'}
+
+def get_local_imaging(data_directory):
+    ''' Load data from local imaging files. '''
+    current_datetime = datetime.now()
+    try:
+        imaging = pd.read_csv(os.path.join(data_directory,'imaging','imaging-log-latest.csv'))
+        qc = pd.read_csv(os.path.join(data_directory,'imaging','qc-log-latest.csv'))
+
+        # DATA OUTPUT
+        data = {
+            'imaging' : imaging.to_dict('records'),
+            'qc' : qc.to_dict('records'),
+        }
+
+        local_imaging_data = {
+            'date': current_datetime,
+            'data': data
+        }
+
+        return local_imaging_data
+    except Exception as e:
+        traceback.print_exc()
+        return {'status': 'Problem with local imaging files'}
+
+import json
+
+
+def get_local_blood(data_directory):
+    ''' Load subjects data from local files'''
+
+    try:
+        blood_json = {}
+
+        blood1_filepath = '/'.join([data_directory,'blood','blood-1-latest.json'])
+        with open(blood1_filepath) as file:
+            blood1 = json.load(file)
+
+        blood2_filepath = '/'.join([data_directory,'blood','blood-2-latest.json'])
+        with open(blood2_filepath) as file:
+            blood2 = json.load(file)
+
+         # Create combined json
+        blood_json = {'1': blood1, '2': blood2}
+
+        return blood_json
+        blood = bloodjson_to_df(blood_json, ['1','2'])
+        blood = simplify_blooddata(blood)
+
+        return blood.to_dict('records')
+
+    except Exception as e:
+        traceback.print_exc()
+        return {'Stats': 'Blood data not available'}
+
+# ----------------------------------------------------------------------------
 # LOAD AND CLEAN DATA FROM API
 # ----------------------------------------------------------------------------
 
@@ -313,7 +390,6 @@ def clean_blooddata(blood_df):
 def get_api_subjects(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
     ''' Load subjects data from api'''
 
-    current_datetime = datetime.now()
     try:
         api_dict = {
                 'subjects':{'subjects1': 'subjects-1-latest.json','subjects2': 'subjects-2-latest.json'},
@@ -343,23 +419,19 @@ def get_api_subjects(api_root = 'https://api.a2cps.org/files/v2/download/public/
         except:
             return {'step fail': '1'}
 
-        try:
-            subjects_raw = combine_mcc_json(subjects_json)
-        except:
-            return {'step fail': '2'}
 
-        try:
-            subjects_raw.reset_index(drop=True, inplace=True)
-        except:
-            return {'step fail': '3'}
-
-        return subjects_raw.to_dict('records')
+        return subjects_json
     except Exception as e:
         traceback.print_exc()
         return {'status':'this is annoying'}
 
-def create_clean_subjects(subjects_raw, screening_sites, display_terms_dict, display_terms_dict_multi):
+def create_clean_subjects(subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi):
     try:
+
+        # Combine jsons into single dataframe
+        subjects_raw = combine_mcc_json(subjects_json)
+        subjects_raw.reset_index(drop=True, inplace=True)
+
         # Clean up subjects data
         subjects = clean_subjects_data(subjects_raw,display_terms_dict)
         subjects = add_screening_site(screening_sites, subjects, 'record_id')
@@ -373,8 +445,8 @@ def create_clean_subjects(subjects_raw, screening_sites, display_terms_dict, dis
         # DATA OUTPUT
         data = {
             'subjects' : subjects.to_dict('records'),
-            'consented' : consented.to_dict('records'),
-            'adverse_events' : adverse_events.to_dict('records'),
+            # 'consented' : consented.to_dict('records'),
+            # 'adverse_events' : adverse_events.to_dict('records'),
         }
 
         api_subjects_data = {
@@ -385,7 +457,7 @@ def create_clean_subjects(subjects_raw, screening_sites, display_terms_dict, dis
         return api_subjects_data
     except Exception as e:
         traceback.print_exc()
-        return None
+        return {'status': 'data cleaning failure'}
 
 ## Function to rebuild dataset from apis
 def get_api_imaging(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):

@@ -19,15 +19,16 @@ server = flask.Flask('app')
 #   Get Data From datastore
 # ---------------------------------
 
-def get_api_data():
+def get_api_data(api_address):
+    api_json = {'source': 'local'}
     try:
-        api_address = "http://datastore:8050/api/subjects"
         response = requests.get(api_address)
-        api_json = response.json()
+        api_json['json'] = response.json()
         return api_json
     except Exception as e:
-        api_json = {'status': 'no response'}
-        # traceback.print_exc()
+        traceback.print_exc()
+        api_json['json'] = 'no response'
+        return api_json
 
 #
 # print("data from datastore:", datafeed)
@@ -37,11 +38,18 @@ def get_api_data():
 # ---------------------------------
 def serve_layout():
 
-    api_data = get_api_data()
-
     layout = html.Div([
         html.H1('A2CPS Data from API'),
-        html.Div(id='div_content', children=json.dumps(api_data))
+        dcc.Dropdown(
+            id='dropdown-api',
+           options=[
+               {'label': 'Subjects', 'value': 'subjects'},
+               {'label': 'Imaging', 'value': 'imaging'},
+               {'label': 'Blood Draws', 'value': 'blood'},
+           ],
+           value='imaging'
+        ),
+        html.Div(id='div_content')
     ])
     return layout
 
@@ -60,3 +68,12 @@ if __name__ == '__main__':
 # ---------------------------------
 #   Callbacks
 # ---------------------------------
+@app.callback(
+    Output('div_content', 'children'),
+    Input('dropdown-api', 'value')
+)
+def update_content(api):
+    api_address = "http://datastore:8050/api/" + api
+    div_json = get_api_data(api_address)
+
+    return json.dumps(div_json)

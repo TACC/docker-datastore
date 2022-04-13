@@ -35,32 +35,40 @@ display_terms, display_terms_dict, display_terms_dict_multi = load_display_terms
 screening_sites = pd.read_csv(os.path.join(ASSETS_PATH,asset_files_dict['screening_sites']))
 
 # ----------------------------------------------------------------------------
+# LOAD INITAL DATA FROM FILES
+# ----------------------------------------------------------------------------
+local_data = {}
+local_data['date'] = '2022-04-13'
+local_data['subjects'] = get_local_subjects(DATA_PATH)
+local_data['imaging'] = get_local_imaging(DATA_PATH)
+local_data['blood'] = get_local_blood(DATA_PATH)
+# ----------------------------------------------------------------------------
 # LOAD DATA
 # ----------------------------------------------------------------------------
 
-try:
-    subjects_data = get_api_subjects()
-    if subjects_data:
-        subjects_data = subjects_data
-    else:
-        subjects_data = {'flipping':'hell'}
-
-except Exception as e:
-    traceback.print_exc()
-    subjects_data = {'status':'bad'}
-
-
-try:
-    imaging_data = get_api_imaging()
-except Exception as e:
-    traceback.print_exc()
-    imaging_data = {'status':'bad'}
-
-try:
-    blood_data = get_api_blood()
-except Exception as e:
-    traceback.print_exc()
-    blood_data = {'status':'bad'}
+# try:
+#     subjects_data = get_api_subjects()
+#     if subjects_data:
+#         subjects_data = subjects_data
+#     else:
+#         subjects_data = {'flipping':'hell'}
+#
+# except Exception as e:
+#     traceback.print_exc()
+#     subjects_data = {'status':'bad'}
+#
+#
+# try:
+#     imaging_data = get_api_imaging()
+# except Exception as e:
+#     traceback.print_exc()
+#     imaging_data = {'status':'bad'}
+#
+# try:
+#     blood_data = get_api_blood()
+# except Exception as e:
+#     traceback.print_exc()
+#     blood_data = {'status':'bad'}
 # available_data = get_data_from_api(screening_sites, display_terms_dict, display_terms_dict_multi)
 
 
@@ -70,23 +78,39 @@ except Exception as e:
 
 app = Flask(__name__)
 
+# APIS: try to load new data, if doesn't work, get most recent
+@app.route("/api/imaging")
+def api_imaging():
+    return jsonify(local_data['imaging'] )
+
+@app.route("/api/subjects")
+def api_subjects():
+    return jsonify(local_data['subjects'] )
+
+@app.route("/api/blood")
+def api_blood():
+    return jsonify(local_data['blood'] )
+
 @app.route("/api/full")
 def api_full():
     datafeeds = {'date': {'weekly': 'today', 'consort': 'today', 'blood': 'today'},
                 'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
     return jsonify(datafeeds)
 
-@app.route("/api/subjects")
-def api_subjects():
-    return json.dumps(subjects_data)
+# @app.route("/api/subjects")
+# def api_subjects():
+#     return json.dumps(subjects_data)
+#
+# @app.route("/api/imaging")
+# def api_imaging():
+#     return jsonify(imaging_data)
+#
+# @app.route("/api/blood")
+# def api_blood():
+#     return jsonify(blood_data)
 
-@app.route("/api/imaging")
-def api_imaging():
-    return jsonify(imaging_data)
 
-@app.route("/api/blood")
-def api_blood():
-    return jsonify(blood_data)
+
 # @app.route("/subjects")
 # def api_subjects():
 #     # if not subjects_df:
