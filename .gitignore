@@ -5,6 +5,7 @@ __pycache__/
 
 # Local data archives
 datastore/src/data/archive/
+datastore_client/src/archive/
 
 # C extensions
 *.so

@@ -4,6 +4,7 @@ import os
 import io
 import requests
 import pathlib
+import json
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,39 @@ import pandas as pd
 import sqlite3
 import datetime
 from datetime import datetime, timedelta
+
+
+# ----------------------------------------------------------------------------
+# Updating data checks
+# ----------------------------------------------------------------------------
+def check_data_current(data_date):
+    '''test to see if the date in a data dictionary is from after 10am on the same day as checking.'''
+    now = datetime.now()
+
+    if data_date.date() == now.date():
+        if data_date.hour < 17 and datetime.now().hour >= 17:
+            return False
+        else:
+            return True
+    else:
+        return False
+
+def check_available_data(available_data):
+    if available_data:
+        if isinstance(available_data, list) and type(available_data[-1]) is dict and 'date' in available_data[-1].keys() and 'data' in available_data[-1].keys():
+            latest_date = available_data[-1]['date']
+            if isinstance(pd.to_datetime(latest_date), datetime):
+                if check_data_current(latest_date):
+                    return True
+                else:
+                    return False
+            else:
+                return False
+        else:
+            return False
+    else:
+        return False
+
 
 # ----------------------------------------------------------------------------
 # HELPER FUNCTIONS
@@ -91,6 +125,7 @@ def combine_mcc_json(mcc_json):
 
     return df
 
+
 # ----------------------------------------------------------------------------
 # EXTRACT ADVERSE EVENTS (NESTED DICTIONARY) FROM DATAFRAME
 # ----------------------------------------------------------------------------
@@ -133,9 +168,9 @@ def clean_adverse_events(adverse_events, display_terms_dict_multi):
         # Coerce to numeric
         multi_data = adverse_events.apply(pd.to_numeric, errors='ignore')
 
-        # convert date columns from object --> datetime datatypes as appropriate
-        # multi_datetime_cols = ['erep_local_dtime','erep_ae_date','erep_onset_date','erep_resolution_date']
-        # multi_data[multi_datetime_cols] = multi_data[multi_datetime_cols].apply(pd.to_datetime, errors='coerce')
+#         # convert date columns from object --> datetime datatypes as appropriate
+#         multi_datetime_cols = ['erep_local_dtime','erep_ae_date','erep_onset_date','erep_resolution_date']
+#         multi_data[multi_datetime_cols] = multi_data[multi_datetime_cols].apply(pd.to_datetime, errors='coerce')
 
         # Convert numeric values to display values using dictionary
         for i in display_terms_dict_multi.keys():
@@ -146,45 +181,9 @@ def clean_adverse_events(adverse_events, display_terms_dict_multi):
     except Exception as e:
         traceback.print_exc()
         return None
-
 # ----------------------------------------------------------------------------
 # CLEAN THE SUBJECTS DATA FRAME
 # ----------------------------------------------------------------------------
-
-def clean_subjects_data(subjects_raw, display_terms_dict, drop_cols_list =['adverse_effects']):
-    '''Take the raw subjects data frame and clean it up. Note that apis don't pass datetime columns well, so
-    these should be converted to datetime by the receiver.
-    datetime columns = ['date_of_contact','date_and_time','obtain_date','ewdateterm','sp_surg_date','sp_v1_preop_date','sp_v2_6wk_date','sp_v3_3mo_date']
-    Can convert within a pd.DataFrame using .apply(pd.to_datetime, errors='coerce')'''
-    # Create copy of raw data
-    subjects_data = subjects_raw.copy()
-
-    # Rename 'index' to 'record_id'
-    subjects_data.rename(columns={"index": "record_id"}, inplace = True)
-
-    # Drop adverse events column
-    subjects_data = subjects_data.drop(columns=drop_cols_list)
-    # Convert all string 'N/A' values to nan values
-    subjects_data = subjects_data.replace('N/A', np.nan)
-
-    # Handle 1-many dem_race, take multi-select values and convert to 8
-    if not np.issubdtype(subjects_data['dem_race'].dtype, np.number):
-        subjects_data['dem_race_original'] = subjects_data['dem_race']
-        subjects_data.loc[(subjects_data.dem_race.str.contains('|', regex=False, na=False)),'dem_race']='8'
-
-    # Coerce numeric values to enable merge
-    subjects_data = subjects_data.apply(pd.to_numeric, errors='ignore')
-
-    # Merge columns on the display terms dictionary to convert from database terminology to user terminology
-    for i in display_terms_dict.keys():
-        if i in subjects_data.columns: # Merge columns if the column exists in the dataframe
-            display_terms = display_terms_dict[i]
-            if subjects_data[i].dtype == np.float64:
-                # for display columns where data is numeric, merge on display dictionary, treating cols as floats to handle nas
-                display_terms[i] = display_terms[i].astype('float64')
-            subjects_data = subjects_data.merge(display_terms, how='left', on=i)
-
-    return subjects_data
 
 def add_screening_site(screening_sites, df, id_col):
     # Get dataframes
@@ -306,56 +305,33 @@ def clean_blooddata(blood_df):
 
 
 # ----------------------------------------------------------------------------
-# LOAD DATA FROM LOCAL FILES
+# LOAD DATA FROM LOCAL FILES, Return *JSON*
 # ----------------------------------------------------------------------------
 
-def get_local_subjects(data_directory):
-    ''' Load subjects data from local files'''
-    try:
-        subjects1_filepath = os.path.join(data_directory,'subjects','subjects-1-latest.json')
-        with open(subjects1_filepath) as file:
-            subjects1 = json.load(file)
+# ----------------------------------------------------------------------------
+# LOAD DATA FROM LOCAL FILES, Return *JSON*
+# ----------------------------------------------------------------------------
 
-        subjects2_filepath = os.path.join(data_directory,'subjects','subjects-2-latest.json')
-        with open(subjects2_filepath) as file:
-            subjects2 = json.load(file)
-
-         # Create combined json
-        subjects_json = {'1': subjects1, '2': subjects2}
-
-        return subjects_json
-
-    except Exception as e:
-        traceback.print_exc()
-        return {'Stats': 'Subjects data not available'}
-
-def get_local_imaging(data_directory):
+def get_local_imaging_data(data_directory):
     ''' Load data from local imaging files. '''
     current_datetime = datetime.now()
     try:
         imaging = pd.read_csv(os.path.join(data_directory,'imaging','imaging-log-latest.csv'))
         qc = pd.read_csv(os.path.join(data_directory,'imaging','qc-log-latest.csv'))
 
-        # DATA OUTPUT
-        data = {
+        imaging_data_json = {
             'imaging' : imaging.to_dict('records'),
-            'qc' : qc.to_dict('records'),
+            'qc' : qc.to_dict('records')
         }
 
-        local_imaging_data = {
-            'date': current_datetime,
-            'data': data
-        }
+        return imaging_data_json
 
-        return local_imaging_data
     except Exception as e:
         traceback.print_exc()
         return {'status': 'Problem with local imaging files'}
 
-import json
 
-
-def get_local_blood(data_directory):
+def get_local_blood_data(data_directory):
     ''' Load subjects data from local files'''
 
     try:
@@ -376,91 +352,43 @@ def get_local_blood(data_directory):
         blood = bloodjson_to_df(blood_json, ['1','2'])
         blood = simplify_blooddata(blood)
 
-        return blood.to_dict('records')
+        blood_data_json = {
+            'blood' : blood.to_dict('records')
+        }
+
+        return blood_data_json
 
     except Exception as e:
         traceback.print_exc()
         return {'Stats': 'Blood data not available'}
 
-# ----------------------------------------------------------------------------
-# LOAD AND CLEAN DATA FROM API
-# ----------------------------------------------------------------------------
-
-## Function to rebuild dataset from apis
-def get_api_subjects(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
-    ''' Load subjects data from api'''
-
+def get_local_subjects_raw(data_directory):
+    ''' Load subjects data from local files'''
     try:
-        api_dict = {
-                'subjects':{'subjects1': 'subjects-1-latest.json','subjects2': 'subjects-2-latest.json'},
-                'imaging': {'imaging': 'imaging-log-latest.csv', 'qc': 'qc-log-latest.csv'},
-                'blood':{'blood1': 'blood-1-latest.json','blood2': 'blood-2-latest.json'},
-               }
+        subjects1_filepath = os.path.join(data_directory,'subjects','subjects-1-latest.json')
+        with open(subjects1_filepath) as file:
+            subjects1 = json.load(file)
 
-        # SUBJECTS
-        # Load Json Data
-        subjects1_filepath = '/'.join([api_root,'subjects',api_dict['subjects']['subjects1']])
-        subjects1_request = requests.get(subjects1_filepath)
-        if subjects1_request.status_code == 200:
-            subjects1 = subjects1_request.json()
-        else:
-            return {'status':'500', 'source': api_dict['subjects']['subjects1']}
+        subjects2_filepath = os.path.join(data_directory,'subjects','subjects-2-latest.json')
+        with open(subjects2_filepath) as file:
+            subjects2 = json.load(file)
 
-        subjects2_filepath = '/'.join([api_root,'subjects',api_dict['subjects']['subjects2']])
-        subjects2_request = requests.get(subjects2_filepath)
-        if subjects2_request.status_code == 200:
-            subjects2 = subjects2_request.json()
-        else:
-            return {'status':'500', 'source': api_dict['subjects']['subjects2']}
-
-        # add json to Dict and combine
-        try:
-            subjects_json = {'1': subjects1, '2': subjects2}
-        except:
-            return {'step fail': '1'}
-
+         # Create combined json
+        subjects_json = {'1': subjects1, '2': subjects2}
 
         return subjects_json
+
     except Exception as e:
         traceback.print_exc()
-        return {'status':'this is annoying'}
+        return {'Stats': 'Subjects data not available'}
 
-def create_clean_subjects(subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi):
-    try:
-
-        # Combine jsons into single dataframe
-        subjects_raw = combine_mcc_json(subjects_json)
-        subjects_raw.reset_index(drop=True, inplace=True)
-
-        # Clean up subjects data
-        subjects = clean_subjects_data(subjects_raw,display_terms_dict)
-        subjects = add_screening_site(screening_sites, subjects, 'record_id')
-
-        # Get subset of data for consented patients
-        consented = get_consented_subjects(subjects)
-
-        # Extract adverse events data
-        adverse_events = clean_adverse_events(extract_adverse_effects_data(subjects_raw), display_terms_dict_multi)
-
-        # DATA OUTPUT
-        data = {
-            'subjects' : subjects.to_dict('records'),
-            # 'consented' : consented.to_dict('records'),
-            # 'adverse_events' : adverse_events.to_dict('records'),
-        }
-
-        api_subjects_data = {
-            'date': current_datetime,
-            'data': data
-        }
-
-        return api_subjects_data
-    except Exception as e:
-        traceback.print_exc()
-        return {'status': 'data cleaning failure'}
+# ----------------------------------------------------------------------------
+# LOAD DATA FROM API
+# ----------------------------------------------------------------------------
 
 ## Function to rebuild dataset from apis
-def get_api_imaging(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
+
+def get_api_imaging_data(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
     ''' Load data from imaging api. Return bad status notice if hits Tapis API'''
 
     current_datetime = datetime.now()
@@ -488,25 +416,20 @@ def get_api_imaging(api_root = 'https://api.a2cps.org/files/v2/download/public/s
         else:
             return {'status':'500', 'source': api_dict['imaging']['qc']}
 
-        # DATA OUTPUT
-        data = {
+        # IF DATA LOADS SUCCESSFULLY:
+        imaging_data_json = {
             'imaging' : imaging.to_dict('records'),
-            'qc' : qc.to_dict('records'),
+            'qc' : qc.to_dict('records')
         }
 
-        api_imaging_data = {
-            'date': current_datetime,
-            'data': data
-        }
+        return imaging_data_json
 
-        return api_imaging_data
     except Exception as e:
         traceback.print_exc()
-        return None
-
+        return "exception: {}".format(e)
 
 ## Function to rebuild dataset from apis
-def get_api_blood(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
+def get_api_blood_data(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
     ''' Load data from api'''
 
     current_datetime = datetime.now()
@@ -534,19 +457,111 @@ def get_api_blood(api_root = 'https://api.a2cps.org/files/v2/download/public/sys
             return {'status':'500', 'source': api_dict['blood']['blood2']}
 
         blood_json = {'1': blood1, '2': blood2}
+
         blood = bloodjson_to_df(blood_json, ['1','2'])
         blood = simplify_blooddata(blood)
 
-        # DATA OUTPUT
-        data = {
+        blood_data_json = {
             'blood' : blood.to_dict('records')
         }
 
-        api_blood_data = {
-            'date': current_datetime,
-            'data': data
+        return blood_data_json
+
+    except Exception as e:
+        traceback.print_exc()
+        return None
+
+def get_api_subjects_json(api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'):
+    ''' Load subjects data from api. Note data needs to be cleaned, etc. to create properly formatted data product'''
+
+    try:
+        # Load Json Data
+        subjects1_filepath = '/'.join([api_root,'subjects','subjects-1-latest.json'])
+        subjects1_request = requests.get(subjects1_filepath)
+        if subjects1_request.status_code == 200:
+            subjects1 = subjects1_request.json()
+        else:
+            return None
+            # return {'status':'500', 'source': api_dict['subjects']['subjects1']}
+
+        subjects2_filepath = '/'.join([api_root,'subjects','subjects-2-latest.json'])
+        subjects2_request = requests.get(subjects2_filepath)
+        if subjects2_request.status_code == 200:
+            subjects2 = subjects2_request.json()
+        else:
+            return None
+            # return {'status':'500', 'source': api_dict['subjects']['subjects2']}
+
+        # Create combined json
+        subjects_json = {'1': subjects1, '2': subjects2}
+
+        return subjects_json
+
+    except Exception as e:
+        traceback.print_exc()
+        return None
+
+# ----------------------------------------------------------------------------
+# CLEAN THE SUBJECTS DATA FRAME
+# ----------------------------------------------------------------------------
+
+def create_clean_subjects(subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi, drop_cols_list =['adverse_effects']):
+    '''Take the raw subjects data frame and clean it up. Note that apis don't pass datetime columns well, so
+    these should be converted to datetime by the receiver.
+    datetime columns = ['date_of_contact','date_and_time','obtain_date','ewdateterm','sp_surg_date','sp_v1_preop_date','sp_v2_6wk_date','sp_v3_3mo_date']
+    Can convert within a pd.DataFrame using .apply(pd.to_datetime, errors='coerce')'''
+    try:
+        # Combine jsons into single dataframe
+        subjects_raw = combine_mcc_json(subjects_json)
+        subjects_raw.reset_index(drop=True, inplace=True)
+
+        #--- Clean up subjects (move to own function?)
+        subjects = subjects_raw.copy()
+        # Rename 'index' to 'record_id'
+        subjects.rename(columns={"index": "record_id"}, inplace = True)
+
+        # Drop adverse events column
+        subjects = subjects.drop(columns=drop_cols_list)
+        # Convert all string 'N/A' values to nan values
+        subjects = subjects.replace('N/A', np.nan)
+
+        # Handle 1-many dem_race, take multi-select values and convert to 8
+        if not np.issubdtype(subjects['dem_race'].dtype, np.number):
+            subjects['dem_race_original'] = subjects['dem_race']
+            subjects.loc[(subjects.dem_race.str.contains('|', regex=False, na=False)),'dem_race']='8'
+
+        # Coerce numeric values to enable merge
+        subjects = subjects.apply(pd.to_numeric, errors='ignore')
+
+        # Merge columns on the display terms dictionary to convert from database terminology to user terminology
+        for i in display_terms_dict.keys():
+            if i in subjects.columns: # Merge columns if the column exists in the dataframe
+                display_terms = display_terms_dict[i]
+                if subjects[i].dtype == np.float64:
+                    # for display columns where data is numeric, merge on display dictionary, treating cols as floats to handle nas
+                    display_terms[i] = display_terms[i].astype('float64')
+                subjects = subjects.merge(display_terms, how='left', on=i)
+        #------
+
+
+        # Add screening sites
+        subjects = add_screening_site(screening_sites, subjects, 'record_id')
+
+        # Get subset of data for consented patients
+        consented = get_consented_subjects(subjects)
+
+        # Extract adverse events data
+        adverse_events = clean_adverse_events(extract_adverse_effects_data(subjects_raw), display_terms_dict_multi)
+
+        # DATA OUTPUT
+        subjects_data = {
+            'subjects' : subjects.to_dict('records'),
+            'consented' : consented.to_dict('records'),
+            'adverse_events' : adverse_events.to_dict('records'),
         }
-        return api_blood_data
+
+        return subjects_data
+
     except Exception as e:
         traceback.print_exc()
         return None

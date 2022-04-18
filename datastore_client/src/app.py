@@ -20,14 +20,21 @@ server = flask.Flask('app')
 # ---------------------------------
 
 def get_api_data(api_address):
-    api_json = {'source': 'local'}
+    api_json = {}
     try:
-        response = requests.get(api_address)
-        api_json['json'] = response.json()
-        return api_json
+        try:
+            response = requests.get(api_address)
+        except:
+            return('error: {}'.format(e))
+        request_status = response.status_code
+        if request_status == 200:
+            api_json = response.json()
+            return api_json
+        else:
+            return request_status
     except Exception as e:
         traceback.print_exc()
-        api_json['json'] = 'no response'
+        api_json['json'] = 'error: {}'.format(e)
         return api_json
 
 #
@@ -47,9 +54,14 @@ def serve_layout():
                {'label': 'Imaging', 'value': 'imaging'},
                {'label': 'Blood Draws', 'value': 'blood'},
            ],
-           value='imaging'
+           # value='imaging'
         ),
-        html.Div(id='div_content')
+        dcc.Loading(
+            id="loading-content",
+            type="default",
+            children=html.Div(id='div_content')
+        ),
+
     ])
     return layout
 

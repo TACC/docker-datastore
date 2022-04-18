@@ -37,59 +37,110 @@ screening_sites = pd.read_csv(os.path.join(ASSETS_PATH,asset_files_dict['screeni
 # ----------------------------------------------------------------------------
 # LOAD INITAL DATA FROM FILES
 # ----------------------------------------------------------------------------
-local_data = {}
-local_data['date'] = '2022-04-13'
-local_data['subjects'] = get_local_subjects(DATA_PATH)
-local_data['imaging'] = get_local_imaging(DATA_PATH)
-local_data['blood'] = get_local_blood(DATA_PATH)
-# ----------------------------------------------------------------------------
-# LOAD DATA
-# ----------------------------------------------------------------------------
 
-# try:
-#     subjects_data = get_api_subjects()
-#     if subjects_data:
-#         subjects_data = subjects_data
-#     else:
-#         subjects_data = {'flipping':'hell'}
-#
-# except Exception as e:
-#     traceback.print_exc()
-#     subjects_data = {'status':'bad'}
-#
-#
-# try:
-#     imaging_data = get_api_imaging()
-# except Exception as e:
-#     traceback.print_exc()
-#     imaging_data = {'status':'bad'}
-#
-# try:
-#     blood_data = get_api_blood()
-# except Exception as e:
-#     traceback.print_exc()
-#     blood_data = {'status':'bad'}
-# available_data = get_data_from_api(screening_sites, display_terms_dict, display_terms_dict_multi)
+local_date = '2022-04-13'
+local_imaging_data = {
+    'date': local_date,
+    'data': get_local_imaging_data(DATA_PATH)}
 
+local_blood_data = {
+    'date': local_date,
+    'data': get_local_blood_data(DATA_PATH)}
+
+
+local_subjects_json = get_local_subjects_raw(DATA_PATH)
+local_subjects_data = {
+    'date': local_date,
+    'data': create_clean_subjects(local_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)}
 
 # ----------------------------------------------------------------------------
 # APIS
 # ----------------------------------------------------------------------------
+api_imaging_data_cache = []
+api_blood_data_cache = []
+api_subjects_json_cache = []
 
 app = Flask(__name__)
 
 # APIS: try to load new data, if doesn't work, get most recent
 @app.route("/api/imaging")
 def api_imaging():
-    return jsonify(local_data['imaging'] )
+    global api_imaging_data_cache
+    try:
+        if not check_available_data(api_imaging_data_cache):
+            current_date = str(datetime.now())
+            latest_data = get_api_imaging_data()
 
-@app.route("/api/subjects")
-def api_subjects():
-    return jsonify(local_data['subjects'] )
+            api_imaging_data = {
+                'date': current_date,
+                'data': latest_data
+                }
+            api_imaging_data_cache = [api_imaging_data]
+        else:
+            api_imaging_data_cache = api_imaging_data_cache
+        return jsonify(api_imaging_data_cache[-1])
+
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            return jsonify(local_imaging_data)
+        except:
+            return jsonify('error: {}'.format(e))
 
 @app.route("/api/blood")
 def api_blood():
-    return jsonify(local_data['blood'] )
+    # return jsonify('blood')
+    global api_blood_data_cache
+    try:
+        if not check_available_data(api_blood_data_cache):
+            current_date = str(datetime.now())
+            latest_data = get_api_blood_data()
+
+            api_blood_data = {
+                'date': current_date,
+                'data': latest_data
+                }
+            api_blood_data_cache = [api_blood_data]
+        else:
+            api_blood_data_cache = api_blood_data_cache
+        return jsonify(api_blood_data_cache[-1])
+
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            return jsonify(local_blood_data)
+        except:
+            return jsonify('error: {}'.format(e))
+
+
+@app.route("/api/subjects")
+def api_subjects():
+
+    global api_subjects_json_cache
+    try:
+        if not check_available_data(api_subjects_json_cache):
+            current_date = str(datetime.now())
+            latest_subjects_json = get_api_subjects_json()
+            if latest_subjects_json:
+                latest_data = create_clean_subjects(latest_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
+                api_subjects_data = {
+                    'date': current_date,
+                    'data': latest_data
+                    }
+
+                api_subjects_json_cache = [api_subjects_json]
+
+            else:
+                api_subjects_json_cache = api_subjects_json_cache
+            return jsonify(api_subjects_json_cache[-1])
+
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            return jsonify(local_subjects_data)
+        except:
+            return jsonify('error: {}'.format(e))
+
 
 @app.route("/api/full")
 def api_full():
@@ -97,43 +148,7 @@ def api_full():
                 'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
     return jsonify(datafeeds)
 
-# @app.route("/api/subjects")
-# def api_subjects():
-#     return json.dumps(subjects_data)
-#
-# @app.route("/api/imaging")
-# def api_imaging():
-#     return jsonify(imaging_data)
-#
-# @app.route("/api/blood")
-# def api_blood():
-#     return jsonify(blood_data)
 
-
-
-# @app.route("/subjects")
-# def api_subjects():
-#     # if not subjects_df:
-#     datafeeds = {'date': {'weekly': 'today', 'consort': 'today', 'blood': 'today'},
-#                 'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
-#     subjects_dict = pd.DataFrame(datafeeds).to_dict('records')
-#     # else:
-#     #     subjects_dict = subjects_df.to_dict('records')
-#     # subjects_dict={'columns': subjects_columns, 'data': subjects_data}
-#     return jsonify(subjects_dict)
-
-
-# @app.route("/imaging")
-# def api_imaging():
-#     imaging_dict = imaging_df.to_dict('records')
-#     # imaging_dict={'columns': imaging_columns, 'data': imaging_data}
-#     return jsonify(imaging_dict)
-#
-# @app.route("/qc")
-# def api_qc():
-#     qc_dict = qc_df.to_dict('records')
-#     # imaging_dict={'columns': imaging_columns, 'data': imaging_data}
-#     return jsonify(qc_dict)
 
 
 if __name__ == "__main__":
