@@ -22,7 +22,7 @@ def check_data_current(data_date):
     now = datetime.now()
 
     if data_date.date() == now.date():
-        if data_date.hour < 17 and datetime.now().hour >= 17:
+        if data_date.hour < 15 and datetime.now().hour >= 15:
             return False
         else:
             return True
@@ -34,7 +34,7 @@ def check_available_data(available_data):
         if isinstance(available_data, list) and type(available_data[-1]) is dict and 'date' in available_data[-1].keys() and 'data' in available_data[-1].keys():
             latest_date = available_data[-1]['date']
             if isinstance(pd.to_datetime(latest_date), datetime):
-                if check_data_current(latest_date):
+                if check_data_current(pd.to_datetime(latest_date)):
                     return True
                 else:
                     return False
@@ -444,28 +444,39 @@ def get_api_blood_data(api_root = 'https://api.a2cps.org/files/v2/download/publi
         # BLOOD
         blood1_filepath = '/'.join([api_root,'blood',api_dict['blood']['blood1']])
         blood1_request = requests.get(blood1_filepath)
-        if blood1_request.status_code == 200:
-            blood1 = blood1_request.json()
-        else:
-            return {'status':'500', 'source': api_dict['blood']['blood1']}
 
         blood2_filepath = '/'.join([api_root,'blood',api_dict['blood']['blood2']])
         blood2_request = requests.get(blood2_filepath)
+
+        if blood1_request.status_code == 200:
+            blood1 = blood1_request.json()
+            blood1_request_status = [current_datetime.strftime("%m/%d/%Y, %H:%M:%S"), blood1_filepath, '200']
+        else:
+            blood1_request_status = [current_datetime.strftime("%m/%d/%Y, %H:%M:%S"), blood1_filepath, blood1_request.status_code ]
+            # return None, {'status':'500', 'source': api_dict['blood']['blood1']}
+
         if blood2_request.status_code == 200:
             blood2 = blood2_request.json()
+            blood2_request_status = [current_datetime.strftime("%m/%d/%Y, %H:%M:%S"), blood2_filepath, '200']
         else:
-            return {'status':'500', 'source': api_dict['blood']['blood2']}
+            blood2_request_status = [current_datetime.strftime("%m/%d/%Y, %H:%M:%S"), blood2_filepath, blood2_request.status_code]
+            # return None, {'date' : 'status':'500', 'source': api_dict['blood']['blood2']}
 
-        blood_json = {'1': blood1, '2': blood2}
+        if blood1_request.status_code == 200 and blood2_request.status_code == 200:
+            blood_json = {'1': blood1, '2': blood2}
 
-        blood = bloodjson_to_df(blood_json, ['1','2'])
-        blood = simplify_blooddata(blood)
+            blood = bloodjson_to_df(blood_json, ['1','2'])
+            blood = simplify_blooddata(blood)
 
-        blood_data_json = {
-            'blood' : blood.to_dict('records')
-        }
+            blood_data_json = {
+                'blood' : blood.to_dict('records')
+            }
+        else:
+            blood_data_json = None
 
-        return blood_data_json
+        request_status = [blood1_request_status, blood2_request_status]
+
+        return blood_data_json, request_status
 
     except Exception as e:
         traceback.print_exc()

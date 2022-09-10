@@ -3,6 +3,7 @@ from os import environ
 import os
 import pandas as pd
 import json
+import csv
 
 from data_loading import *
 
@@ -38,7 +39,8 @@ screening_sites = pd.read_csv(os.path.join(ASSETS_PATH,asset_files_dict['screeni
 # LOAD INITAL DATA FROM FILES
 # ----------------------------------------------------------------------------
 
-local_date = '2022-04-13'
+local_date = '2022-09-08'
+
 local_imaging_data = {
     'date': local_date,
     'data': get_local_imaging_data(DATA_PATH)}
@@ -51,102 +53,161 @@ local_blood_data = {
 local_subjects_json = get_local_subjects_raw(DATA_PATH)
 local_subjects_data = {
     'date': local_date,
-    'data': create_clean_subjects(local_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)}
+    'data': create_clean_subjects(local_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
+    }
+
+local_data = {
+        'imaging': local_imaging_data,
+        'blood': local_imaging_data,
+        'subjects': local_subjects_data
+}
 
 # ----------------------------------------------------------------------------
 # APIS
 # ----------------------------------------------------------------------------
-api_imaging_data_cache = []
-api_blood_data_cache = []
-api_subjects_json_cache = []
+datetime_format = "%m/%d/%Y, %H:%M:%S"
+
+apis_imaging_index = {}
+data_state = 'empty'
+api_data_index = {
+    'blood':'',
+    'imaging':'',
+    'subjects':'',
+}
+api_data_cache = {
+    'blood':None,
+    'imaging':None,
+    'subjects':None,
+}
 
 app = Flask(__name__)
 
 # APIS: try to load new data, if doesn't work, get most recent
+@app.route("/api/apis")
+def api_apis():
+    print(api_data_index)
+    return jsonify(api_data_index)
+
 @app.route("/api/imaging")
 def api_imaging():
-    global api_imaging_data_cache
+    global datetime_format
+    global api_data_index
+    global api_data_cache
     try:
-        if not check_available_data(api_imaging_data_cache):
-            current_date = str(datetime.now())
-            latest_data = get_api_imaging_data()
-
-            api_imaging_data = {
-                'date': current_date,
-                'data': latest_data
-                }
-            api_imaging_data_cache = [api_imaging_data]
-        else:
-            api_imaging_data_cache = api_imaging_data_cache
-        return jsonify(api_imaging_data_cache[-1])
-
+        if not api_data_index['imaging'] or not check_data_current(datetime.strptime(api_data_index['imaging'], datetime_format)):
+            api_date = datetime.now().strftime(datetime_format)
+            imaging_data = get_api_imaging_data()
+            if imaging_data:
+                api_data_cache['imaging'] = imaging_data
+                api_data_index['imaging'] = api_date
+        return jsonify({'date': api_data_index['imaging'], 'data': api_data_cache['imaging']})
     except Exception as e:
         traceback.print_exc()
-        try:
-            return jsonify(local_imaging_data)
-        except:
-            return jsonify('error: {}'.format(e))
+        return jsonify('error: {}'.format(e))
 
 @app.route("/api/blood")
 def api_blood():
-    # return jsonify('blood')
-    global api_blood_data_cache
+    global datetime_format
+    global api_data_index
+    global api_data_cache
     try:
-        if not check_available_data(api_blood_data_cache):
-            current_date = str(datetime.now())
-            latest_data = get_api_blood_data()
+        if not api_data_index['blood'] or not check_data_current(datetime.strptime(api_data_index['blood'], datetime_format)):
+            api_date = datetime.now().strftime(datetime_format)
+            blood_data, blood_data_request_status = get_api_blood_data()
+            if blood_data:                
+                api_data_index['blood'] = api_date
+                api_data_cache['blood'] = blood_data
 
-            api_blood_data = {
-                'date': current_date,
-                'data': latest_data
-                }
-            api_blood_data_cache = [api_blood_data]
-        else:
-            api_blood_data_cache = api_blood_data_cache
-        return jsonify(api_blood_data_cache[-1])
+            with open('requests.csv', 'a', newline='') as f:
+                writer = csv.writer(f)
+                for i in blood_data_request_status:
+                    writer.writerow(i)
+                f.close()
 
+        return jsonify({'date': api_data_index['blood'], 'data': api_data_cache['blood']})
     except Exception as e:
         traceback.print_exc()
-        try:
-            return jsonify(local_blood_data)
-        except:
-            return jsonify('error: {}'.format(e))
+        return jsonify('error: {}'.format(e))
 
+# @app.route("/api/blood")
+# def api_blood():
+#     # return jsonify('blood')
+#     global api_blood_data_cache
+#     try:
+#         if not check_available_data(api_blood_data_cache):
+#             current_date = str(datetime.now())
+#             latest_data = get_api_blood_data()
+#
+#             api_blood_data = {
+#                 'date': current_date,
+#                 'data': latest_data
+#                 }
+#             api_blood_data_cache = [api_blood_data]
+#         else:
+#             api_blood_data_cache = api_blood_data_cache
+#         return jsonify(api_blood_data_cache[-1])
+#
+#     except Exception as e:
+#         traceback.print_exc()
+#         # try:
+#         #     return jsonify(local_data['blood'])
+#         # except:
+#         return jsonify('error: {}'.format(e))
 
 @app.route("/api/subjects")
 def api_subjects():
-
-    global api_subjects_json_cache
+    global datetime_format
+    global api_data_index
+    global api_data_cache
     try:
-        if not check_available_data(api_subjects_json_cache):
-            current_date = str(datetime.now())
+        if not api_data_index['subjects'] or not check_data_current(datetime.strptime(api_data_index['subjects'], datetime_format)):
+            api_date = datetime.now().strftime(datetime_format)
             latest_subjects_json = get_api_subjects_json()
             if latest_subjects_json:
                 latest_data = create_clean_subjects(latest_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
-                api_subjects_data = {
-                    'date': current_date,
-                    'data': latest_data
-                    }
 
-                api_subjects_json_cache = [api_subjects_json]
+                api_data_cache['subjects'] = latest_data
+                api_data_index['subjects'] = api_date
 
-            else:
-                api_subjects_json_cache = api_subjects_json_cache
-            return jsonify(api_subjects_json_cache[-1])
-
+        return jsonify({'date': api_data_index['subjects'], 'data': api_data_cache['subjects']})
     except Exception as e:
         traceback.print_exc()
-        try:
-            return jsonify(local_subjects_data)
-        except:
-            return jsonify('error: {}'.format(e))
+        return jsonify('error: {}'.format(e))
+
+# @app.route("/api/subjects")
+# def api_subjects():
+#
+#     global api_subjects_json_cache
+#     try:
+#         if not check_available_data(api_subjects_json_cache):
+#             current_date = str(datetime.now())
+#             latest_subjects_json = get_api_subjects_json()
+#             if latest_subjects_json:
+#                 latest_data = create_clean_subjects(latest_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
+#                 api_subjects_data = {
+#                     'date': current_date,
+#                     'data': latest_data
+#                     }
+#
+#                 api_subjects_json_cache = [api_subjects_json]
+#
+#             else:
+#                 api_subjects_json_cache = api_subjects_json_cache
+#             return jsonify(api_subjects_json_cache[-1])
+#
+#     except Exception as e:
+#         traceback.print_exc()
+#         # try:
+#         #     return jsonify(local_data['subjects'])
+#         # except:
+#         return jsonify('error: {}'.format(e))
 
 
-@app.route("/api/full")
-def api_full():
-    datafeeds = {'date': {'weekly': 'today', 'consort': 'today', 'blood': 'today'},
-                'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
-    return jsonify(datafeeds)
+# @app.route("/api/full")
+# def api_full():
+#     datafeeds = {'date': {'weekly': 'today', 'consort': 'today', 'blood': 'today'},
+#                 'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
+#     return jsonify(datafeeds)
 
 
 
