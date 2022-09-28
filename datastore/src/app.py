@@ -5,7 +5,10 @@ import pandas as pd
 import json
 import csv
 
+# from data_processing import *
 from data_loading import *
+
+
 
 ## Get Parameters
 SECRET_KEY = environ.get("SECRET_KEY")
@@ -22,6 +25,14 @@ ASSETS_PATH = os.path.join(current_folder,'assets')
 # Path to Report files at TACC
 api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'
 
+# Load subjects locally
+# Opening JSON file
+filepath = os.path.join(DATA_PATH,'lsj.json')
+f = open(filepath)
+# returns JSON object as a dictionary
+subjects_raw = json.load(f)
+# Closing file
+f.close()
 
 # ----------------------------------------------------------------------------
 # LOAD ASSETS FILES
@@ -50,10 +61,10 @@ local_blood_data = {
     'data': get_local_blood_data(DATA_PATH)}
 
 
-local_subjects_json = get_local_subjects_raw(DATA_PATH)
+# local_subjects_json = get_local_subjects_raw(DATA_PATH)
 local_subjects_data = {
     'date': local_date,
-    'data': create_clean_subjects(local_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
+    'data': process_subjects(subjects_raw,screening_sites, display_terms_dict, display_terms_dict_multi)
     }
 
 local_data = {
@@ -73,12 +84,22 @@ api_data_index = {
     'blood':'',
     'imaging':'',
     'subjects':'',
+    'raw': 'local'
+}
+api_request_state = {
+    'blood':None,
+    'imaging':None,
+    'subjects1':None,
+    'subjects2':None,
 }
 api_data_cache = {
     'blood':None,
     'imaging':None,
     'subjects':None,
+    'raw': None
 }
+
+api_subjects = {'date':None, 'data':None}
 
 app = Flask(__name__)
 
@@ -114,7 +135,7 @@ def api_blood():
         if not api_data_index['blood'] or not check_data_current(datetime.strptime(api_data_index['blood'], datetime_format)):
             api_date = datetime.now().strftime(datetime_format)
             blood_data, blood_data_request_status = get_api_blood_data()
-            if blood_data:                
+            if blood_data:
                 api_data_index['blood'] = api_date
                 api_data_cache['blood'] = blood_data
 
@@ -129,43 +150,21 @@ def api_blood():
         traceback.print_exc()
         return jsonify('error: {}'.format(e))
 
-# @app.route("/api/blood")
-# def api_blood():
-#     # return jsonify('blood')
-#     global api_blood_data_cache
-#     try:
-#         if not check_available_data(api_blood_data_cache):
-#             current_date = str(datetime.now())
-#             latest_data = get_api_blood_data()
-#
-#             api_blood_data = {
-#                 'date': current_date,
-#                 'data': latest_data
-#                 }
-#             api_blood_data_cache = [api_blood_data]
-#         else:
-#             api_blood_data_cache = api_blood_data_cache
-#         return jsonify(api_blood_data_cache[-1])
-#
-#     except Exception as e:
-#         traceback.print_exc()
-#         # try:
-#         #     return jsonify(local_data['blood'])
-#         # except:
-#         return jsonify('error: {}'.format(e))
 
 @app.route("/api/subjects")
 def api_subjects():
     global datetime_format
     global api_data_index
     global api_data_cache
+
     try:
         if not api_data_index['subjects'] or not check_data_current(datetime.strptime(api_data_index['subjects'], datetime_format)):
             api_date = datetime.now().strftime(datetime_format)
             latest_subjects_json = get_api_subjects_json()
             if latest_subjects_json:
-                latest_data = create_clean_subjects(latest_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
-
+                # latest_data = create_clean_subjects(latest_subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi)
+                latest_data = process_subjects(latest_subjects_json,screening_sites, display_terms_dict, display_terms_dict_multi)
+                
                 api_data_cache['subjects'] = latest_data
                 api_data_index['subjects'] = api_date
 
@@ -173,6 +172,77 @@ def api_subjects():
     except Exception as e:
         traceback.print_exc()
         return jsonify('error: {}'.format(e))
+
+@app.route("/api/load_data")
+def api_load_data():
+    global datetime_format
+    global api_data_index
+    global api_data_cache
+
+    try:
+        # return api_data_index
+        # if not 'tester' in api_data_index.keys():
+        if not api_request_state['subjects1']  == 200 or not api_request_state['subjects2'] == 200 :
+            api_date = datetime.now().strftime(datetime_format)
+            api_data_index['raw'] = api_date
+
+            # latest_subjects_json = get_api_subjects_json()
+
+            api_root = 'https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'
+
+            # Load Json Data
+            subjects1_filepath = '/'.join([api_root,'subjects','subjects-1-latest.json'])
+            subjects1_request = requests.get(subjects1_filepath)
+            api_request_state['subjects1'] = subjects1_request.status_code
+            if subjects1_request.status_code == 200:
+                subjects1 = subjects1_request.json()
+            else:
+                subjects1 = subjects1_request.status_code
+                # return {'status':'500', 'source': api_dict['subjects']['subjects1']}
+
+            subjects2_filepath = '/'.join([api_root,'subjects','subjects-2-latest.json'])
+            subjects2_request = requests.get(subjects2_filepath)
+            api_request_state['subjects2'] = subjects2_request.status_code
+            if subjects2_request.status_code == 200:
+                subjects2 = subjects2_request.json()
+            else:
+                subjects2 = subjects2_request.status_code
+                # return {'status':'500', 'source': api_dict['subjects']['subjects2']}
+
+            # Create combined json
+            latest_subjects_json = {'1': subjects1, '2': subjects2}
+            api_data_cache['raw'] = latest_subjects_json
+
+            if latest_subjects_json:
+                api_data_cache['raw'] = latest_subjects_json
+                return jsonify(api_data_cache['raw'])
+            else:
+                api_data_cache['raw'] = 'failed'
+                return jsonify({'failed':''})
+
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify('error: {}'.format(e))
+
+
+@app.route("/api/tester")
+def api_tester():
+
+    global local_subjects_data
+
+    try:
+        return jsonify(local_subjects_data)
+
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify('error: {}'.format(e))
+
+# @app.route("/api/screening_sites")
+# def api_screening_sites():
+#     screening_site_dict = screening_sites.to_dict('records')
+#     return jsonify(screening_site_dict)
 
 # @app.route("/api/subjects")
 # def api_subjects():
@@ -203,11 +273,11 @@ def api_subjects():
 #         return jsonify('error: {}'.format(e))
 
 
-# @app.route("/api/full")
-# def api_full():
-#     datafeeds = {'date': {'weekly': 'today', 'consort': 'today', 'blood': 'today'},
-#                 'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
-#     return jsonify(datafeeds)
+@app.route("/api/full")
+def api_full():
+    datafeeds = {'date': {'weekly': 'today', 'consort': 'today', 'blood': 'today'},
+                'data': {'weekly': 'tbd', 'consort': 'tbd', 'blood': 'tbd'}}
+    return jsonify(datafeeds)
 
 
 

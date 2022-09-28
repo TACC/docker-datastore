@@ -127,20 +127,24 @@ def update_datastore(n_clicks, api, datastore_dict):
         api_json = get_api_data(api_address)
         if api_json:
             datastore_dict[api] = api_json
+            print('got api-json')
+        else:
+            print('no api-json')
+
     options = []
-    for api in datastore_dict.keys():
-        api_label = api + ' [' + datastore_dict[api]['date'] + ']'
-        api_header_option = {'label': api_label, 'value': api_label, 'disabled': True}
-        options.append(api_header_option)
-        for dataframe in datastore_dict[api]['data'].keys():
-        #     api_dataframe_label = api + '_' + datastore_dict[api][dataframe]
-            # api_dataframe_option = {'label': api_dataframe_label, 'value': api_dataframe_label}
-            api_dataframe_option = {'label': '  -' + dataframe, 'value': api + ':' + dataframe}
-            options.append(api_dataframe_option)
+    if datastore_dict:
+        for api in datastore_dict.keys():
+            api_label = api + ' [' + datastore_dict[api]['date'] + ']'
+            api_header_option = {'label': api_label, 'value': api_label, 'disabled': True}
+            options.append(api_header_option)
+            for dataframe in datastore_dict[api]['data'].keys():
+            #     api_dataframe_label = api + '_' + datastore_dict[api][dataframe]
+                # api_dataframe_option = {'label': api_dataframe_label, 'value': api_dataframe_label}
+                api_dataframe_option = {'label': '  -' + dataframe, 'value': api + ':' + dataframe}
+                options.append(api_dataframe_option)
+        # print(datastore_dict[api]['date'])
+        # print(datastore_dict[api]['data'].keys())
 
-
-    print(datastore_dict[api]['date'])
-    print(datastore_dict[api]['data'].keys())
     # options = list(datastore_dict[api]['data'].keys())
     # print(datastore_dict.keys())
     # for key in datastore_dict.keys():
@@ -149,7 +153,8 @@ def update_datastore(n_clicks, api, datastore_dict):
     #         for k in datastore_dict[key].keys():
     #             if datastore_dict[k] is dict:
     #                 print(datastore_dict[key][k].keys())
-
+    else:
+        print('no datastore_dict')
     return datastore_dict, options
 
 @app.callback(

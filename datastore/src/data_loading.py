@@ -91,7 +91,6 @@ def load_display_terms(ASSETS_PATH, display_terms_file):
 
     return display_terms, display_terms_dict, display_terms_dict_multi
 
-
 def get_display_dictionary(display_terms, api_field, api_value, display_col):
     '''from a dataframe with the table display information, create a dictionary by field to match the database
     value to a value for use in the UI '''
@@ -106,207 +105,6 @@ def get_display_dictionary(display_terms, api_field, api_value, display_col):
         term_df = term_df.apply(pd.to_numeric, errors='ignore')
         display_terms_dict[i] = term_df
     return display_terms_dict
-
-
-# ----------------------------------------------------------------------------
-# Combine Subjects MCC jsons
-# ----------------------------------------------------------------------------
-
-def combine_mcc_json(mcc_json):
-    '''Convert MCC json subjects data into dataframe and combine'''
-    df = pd.DataFrame()
-    for mcc in mcc_json:
-        mcc_data = pd.DataFrame.from_dict(mcc_json[mcc], orient='index').reset_index()
-        mcc_data['mcc'] = mcc
-        if df.empty:
-            df = mcc_data
-        else:
-            df = pd.concat([df, mcc_data])
-
-    return df
-
-
-# ----------------------------------------------------------------------------
-# EXTRACT ADVERSE EVENTS (NESTED DICTIONARY) FROM DATAFRAME
-# ----------------------------------------------------------------------------
-
-def extract_adverse_effects_data(subjects_data, adverse_effects_col = 'adverse_effects'):
-    '''Extract data with multiple values (stored as 'adverse effects' column) from the subjects data.
-    Adverse effects data is stored in a nested dictionary format - this function unpacks that.'''
-    index_cols = ['index','main_record_id', 'mcc']
-    # reset index using index_cols
-    multi_data = subjects_data.set_index(index_cols).copy()
-    # Extract multi data values
-    multi_df = multi_data[[adverse_effects_col]].dropna()
-    # Convert from data frame back to dict
-    multi_dict = multi_df.to_dict('index')
-    # Turn dict into df with multi=index and reset_index
-    multi = pd.DataFrame.from_dict({(i,k): multi_dict[i][j][k]
-                               for i in multi_dict.keys()
-                               for j in multi_dict[i].keys()
-                               for k in multi_dict[i][j].keys()
-                           },
-                           orient='index')
-    # Replace empty strings with NaN
-    multi = multi.replace(r'^\s*$', np.nan, regex=True)
-    multi = multi.reset_index()
-    # Convert level 0 of index from nested index back into columns
-    multi[index_cols] = pd.DataFrame(multi['level_0'].tolist(), index=multi.index)
-    # Label level 1 of multiindex as the instance of adverse events for a given subject
-    multi['instance'] = multi['level_1']
-    # Drop the extraneous columns
-    multi.drop(['level_0', 'level_1'], axis=1, inplace=True)
-
-    # Move index columns to start of dataframe
-    index_cols.append('instance')
-    new_col_order = index_cols + list(multi.columns.drop(index_cols))
-    multi = multi[new_col_order]
-    return multi
-
-def clean_adverse_events(adverse_events, display_terms_dict_multi):
-    try:
-        # Coerce to numeric
-        multi_data = adverse_events.apply(pd.to_numeric, errors='ignore')
-
-#         # convert date columns from object --> datetime datatypes as appropriate
-#         multi_datetime_cols = ['erep_local_dtime','erep_ae_date','erep_onset_date','erep_resolution_date']
-#         multi_data[multi_datetime_cols] = multi_data[multi_datetime_cols].apply(pd.to_datetime, errors='coerce')
-
-        # Convert numeric values to display values using dictionary
-        for i in display_terms_dict_multi.keys():
-            if i in multi_data.columns:
-                multi_data = multi_data.merge(display_terms_dict_multi[i], how='left', on=i)
-
-        return multi_data
-    except Exception as e:
-        traceback.print_exc()
-        return None
-# ----------------------------------------------------------------------------
-# CLEAN THE SUBJECTS DATA FRAME
-# ----------------------------------------------------------------------------
-
-def add_screening_site(screening_sites, df, id_col):
-    # Get dataframes
-    ids = df.loc[:, [id_col]]
-
-    # open sql connection to create new datarframe with record_id paired to screening site
-    conn = sqlite3.connect(':memory:')
-    ids.to_sql('ids', conn, index=False)
-    screening_sites.to_sql('ss', conn, index=False)
-
-    sql_qry = f'''
-    select {id_col}, screening_site
-    from ids
-    join ss on
-    ids.{id_col} between ss.record_id_start and ss.record_id_end
-    '''
-    sites = pd.read_sql_query(sql_qry, conn)
-    conn.close()
-
-    df = sites.merge(df, how='left', on=id_col)
-
-    return df
-
-def get_consented_subjects(subjects_with_screening_site):
-    '''Get the consented patients from subjects dataframe with screening sites added'''
-    consented = subjects_with_screening_site.copy()
-    consented['treatment_site'] = consented.apply(lambda x: use_b_if_not_a(x['sp_data_site_display'], x['redcap_data_access_group_display']), axis=1)
-
-    return consented
-
-# ----------------------------------------------------------------------------
-# Blood JSON input into Dataframe
-# ----------------------------------------------------------------------------
-
-def bloodjson_to_df(json, mcc_list):
-    df = pd.DataFrame()
-    dict_cols = ['Baseline Visit', '6-Wks Post-Op', '3-Mo Post-Op']
-    for mcc in mcc_list:
-        if mcc in json.keys():
-            m = json[mcc]
-        if str(mcc) in json.keys():
-            mcc=str(mcc)
-            m = json[mcc]
-        if m:
-            mdf = pd.DataFrame.from_dict(m, orient='index')
-            mdf.dropna(subset=['screening_site'], inplace=True)
-            mdf.reset_index(inplace=True)
-            mdf['MCC'] = mcc
-            for c in dict_cols:
-                if c in mdf.columns:
-                    col_df = dict_to_col(mdf, ['index','MCC','screening_site'], c,'Visit')
-                    df = pd.concat([df, col_df])
-                    df.reset_index(inplace=True, drop=True)
-    return df
-
-# ----------------------------------------------------------------------------
-# Clean blood dataframe
-# ----------------------------------------------------------------------------
-
-def simplify_blooddata(blood_df):
-    '''Take the raw blood data frame and simplify by dropping columns with the nested dictionaries,
-    and moving visit column to beginning of dataframe.'''
-
-    # Drop baseline dict, 6 week dict, 3 month dict
-    blood_df.drop(['Baseline Visit', '6-Wks Post-Op', '3-Mo Post-Op'], axis=1, inplace=True)
-
-    # move Visit column to beginning of DF
-    move_column_inplace(blood_df, 'Visit', 2)
-
-    return blood_df
-
-def clean_blooddata(blood_df):
-    '''Take the raw subjects data frame and clean it up. Note that apis don't pass datetime columns well, so
-    these should be converted to datetime by the receiver.
-    datetime columns = ['date_of_contact','date_and_time','obtain_date','ewdateterm','sp_surg_date','sp_v1_preop_date','sp_v2_6wk_date','sp_v3_3mo_date']
-    Can convert within a pd.DataFrame using .apply(pd.to_datetime, errors='coerce')'''
-
-    # Convert numeric columns
-    numeric_cols = ['bscp_aliq_cnt','bscp_protocol_dev','bscp_protocol_dev_reason']
-    blood_df[numeric_cols] = blood_df[numeric_cols].apply(pd.to_numeric,errors='coerce')
-
-    # Convert datetime columns
-    datetime_cols = ['bscp_time_blood_draw','bscp_aliquot_freezer_time','bscp_time_centrifuge']
-    blood_df[datetime_cols] = blood_df[datetime_cols].apply(pd.to_datetime,errors='coerce')
-
-    # Add calculated columns
-    # Calculate time to freezer: freezer time - blood draw time
-    blood_df['time_to_freezer'] = blood_df['bscp_aliquot_freezer_time'] - blood_df['bscp_time_blood_draw']
-    blood_df['time_to_freezer_minutes'] = blood_df['time_to_freezer'].dt.components['hours']*60 + blood_df['time_to_freezer'].dt.components['minutes']
-
-    # Calculate time to centrifuge: centrifuge time - blood draw time
-    blood_df['time_to_centrifuge'] = blood_df['bscp_time_centrifuge'] - blood_df['bscp_time_blood_draw']
-    blood_df['time_to_centrifuge_minutes'] = blood_df['time_to_centrifuge'].dt.components['hours']*60 + blood_df['time_to_centrifuge'].dt.components['minutes']
-
-    # Calculate times exist in correct order
-    blood_df['time_values_check'] = (blood_df['time_to_centrifuge_minutes'] < blood_df['time_to_freezer_minutes'] ) & (blood_df['time_to_centrifuge_minutes'] <= 30) & (blood_df['time_to_freezer_minutes'] <= 60)
-
-    # Get 'Site' column that combines MCC and screening site
-    blood_df['Site'] = 'MCC' + blood_df['MCC'].astype(str) + ': ' + blood_df['screening_site']
-
-    # Convert Deviation Numeric Values to Text
-    deviation_dict = {1:'Unable to obtain blood sample -technical reason',
-                      2: 'Unable to obtain blood sample -patient related',
-                      3: 'Sample handling/processing error'}
-    deviation_df = pd.DataFrame.from_dict(deviation_dict, orient='index')
-    deviation_df.reset_index(inplace=True)
-    deviation_df.columns = ['bscp_protocol_dev_reason','Deviation Reason']
-    blood_df = blood_df.merge(deviation_df, on='bscp_protocol_dev_reason', how='left')
-
-    # Clean column names for more human friendly usage
-    rename_dict = {'index':'ID',
-                   'screening_site':'Screening Site',
-                   'bscp_deg_of_hemolysis':'Hemolysis'}
-
-    # rename index col as ID
-    blood_df = blood_df.rename(columns=rename_dict)
-
-    return blood_df
-
-
-# ----------------------------------------------------------------------------
-# LOAD DATA FROM LOCAL FILES, Return *JSON*
-# ----------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------
 # LOAD DATA FROM LOCAL FILES, Return *JSON*
@@ -329,7 +127,6 @@ def get_local_imaging_data(data_directory):
     except Exception as e:
         traceback.print_exc()
         return {'status': 'Problem with local imaging files'}
-
 
 def get_local_blood_data(data_directory):
     ''' Load subjects data from local files'''
@@ -512,20 +309,89 @@ def get_api_subjects_json(api_root = 'https://api.a2cps.org/files/v2/download/pu
         traceback.print_exc()
         return None
 
+
 # ----------------------------------------------------------------------------
-# CLEAN THE SUBJECTS DATA FRAME
+# PROCESS SUBJECTS DATA
 # ----------------------------------------------------------------------------
 
-def create_clean_subjects(subjects_json, screening_sites, display_terms_dict, display_terms_dict_multi, drop_cols_list =['adverse_effects']):
+# 1. Combine separate jsons for each MCC into a single data frame
+def combine_mcc_json(mcc_json):
+    '''Convert MCC json subjects data into dataframe and combine'''
+    df = pd.DataFrame()
+    for mcc in mcc_json:
+        mcc_data = pd.DataFrame.from_dict(mcc_json[mcc], orient='index').reset_index()
+        mcc_data['mcc'] = mcc
+        if df.empty:
+            df = mcc_data
+        else:
+            df = pd.concat([df, mcc_data])
+
+    return df
+
+# 2. extract nested 1-to-many adverse events data
+def extract_adverse_effects_data(subjects_data, adverse_effects_col = 'adverse_effects'):
+    '''Extract data with multiple values (stored as 'adverse effects' column) from the subjects data.
+    Adverse effects data is stored in a nested dictionary format - this function unpacks that.'''
+
+    index_cols = ['index','main_record_id', 'mcc']
+    # reset index using index_cols
+    multi_data = subjects_data.set_index(index_cols).copy()
+    # Extract multi data values
+    multi_df = multi_data[[adverse_effects_col]].dropna()
+    # Convert from data frame back to dict
+    multi_dict = multi_df.to_dict('index')
+    # Turn dict into df with multi=index and reset_index
+    multi = pd.DataFrame.from_dict({(i,k): multi_dict[i][j][k]
+                               for i in multi_dict.keys()
+                               for j in multi_dict[i].keys()
+                               for k in multi_dict[i][j].keys()
+                           },
+                           orient='index')
+    # Replace empty strings with NaN
+    multi = multi.replace(r'^\s*$', np.nan, regex=True)
+    multi = multi.reset_index()
+    # Convert level 0 of index from nested index back into columns
+    multi[index_cols] = pd.DataFrame(multi['level_0'].tolist(), index=multi.index)
+    # Label level 1 of multiindex as the instance of adverse events for a given subject
+    multi['instance'] = multi['level_1']
+    # Drop the extraneous columns
+    multi.drop(['level_0', 'level_1'], axis=1, inplace=True)
+
+    # Move index columns to start of dataframe
+    index_cols.append('instance')
+    new_col_order = index_cols + list(multi.columns.drop(index_cols))
+    multi = multi[new_col_order]
+    return multi
+
+# 3. Clean subjects dataframe
+def add_screening_site(screening_sites, df, id_col):
+    # Get dataframes
+    ids = df.loc[:, [id_col]]
+
+    # open sql connection to create new datarframe with record_id paired to screening site
+    conn = sqlite3.connect(':memory:')
+    ids.to_sql('ids', conn, index=False)
+    screening_sites.to_sql('ss', conn, index=False)
+
+    sql_qry = f'''
+    select {id_col}, screening_site, site, surgery_type, record_id_start, record_id_end
+    from ids
+    join ss on
+    ids.{id_col} between ss.record_id_start and ss.record_id_end
+    '''
+    sites = pd.read_sql_query(sql_qry, conn)
+    conn.close()
+
+    df = df.merge(sites, how='left', on=id_col)
+
+    return df
+
+def create_clean_subjects(subjects_raw, screening_sites, display_terms_dict, display_terms_dict_multi, drop_cols_list =['adverse_effects']):
     '''Take the raw subjects data frame and clean it up. Note that apis don't pass datetime columns well, so
     these should be converted to datetime by the receiver.
     datetime columns = ['date_of_contact','date_and_time','obtain_date','ewdateterm','sp_surg_date','sp_v1_preop_date','sp_v2_6wk_date','sp_v3_3mo_date']
     Can convert within a pd.DataFrame using .apply(pd.to_datetime, errors='coerce')'''
     try:
-        # Combine jsons into single dataframe
-        subjects_raw = combine_mcc_json(subjects_json)
-        subjects_raw.reset_index(drop=True, inplace=True)
-
         #--- Clean up subjects (move to own function?)
         subjects = subjects_raw.copy()
         # Rename 'index' to 'record_id'
@@ -554,25 +420,154 @@ def create_clean_subjects(subjects_json, screening_sites, display_terms_dict, di
                 subjects = subjects.merge(display_terms, how='left', on=i)
         #------
 
-
         # Add screening sites
         subjects = add_screening_site(screening_sites, subjects, 'record_id')
 
-        # Get subset of data for consented patients
-        consented = get_consented_subjects(subjects)
-
-        # Extract adverse events data
-        adverse_events = clean_adverse_events(extract_adverse_effects_data(subjects_raw), display_terms_dict_multi)
-
-        # DATA OUTPUT
-        subjects_data = {
-            'subjects' : subjects.to_dict('records'),
-            'consented' : consented.to_dict('records'),
-            'adverse_events' : adverse_events.to_dict('records'),
-        }
-
-        return subjects_data
+        return subjects
 
     except Exception as e:
         traceback.print_exc()
         return None
+
+# 4. Extract data for only those patients who ultimately consented
+def get_consented_subjects(subjects_with_screening_site):
+    '''Get the consented patients from subjects dataframe with screening sites added'''
+    consented = subjects_with_screening_site[subjects_with_screening_site.obtain_date.notnull()].copy()
+    consented['treatment_site'] = consented.apply(lambda x: use_b_if_not_a(x['sp_data_site_display'],x['redcap_data_access_group_display']), axis=1)
+    consented['treatment_site_type'] = consented['treatment_site'] + "/" + consented['surgery_type']
+    return consented
+
+# 5. restrict Adverse Events data to those subjects identified as 'consented' in step 5
+def clean_adverse_events(adverse_events, consented, display_terms_dict_multi):
+    try:
+        # Coerce to numeric
+        multi_data = adverse_events.apply(pd.to_numeric, errors='ignore')
+
+        # Convert numeric values to display values using dictionary
+        for i in display_terms_dict_multi.keys():
+            if i in multi_data.columns:
+                multi_data = multi_data.merge(display_terms_dict_multi[i], how='left', on=i)
+
+        # Rename 'index' to 'record_id'
+        multi_data.rename(columns={"index": "record_id"}, inplace = True)
+
+        # merge with consented data to get treatment_site column
+        multi_data = consented[['record_id','treatment_site']].copy().merge(multi_data, how='right', on='record_id')
+
+        return multi_data
+    except Exception as e:
+        traceback.print_exc()
+        return None
+
+# ----------------------------------------------------------------------------
+# PROCESS BLOOD DATA
+# ----------------------------------------------------------------------------
+
+# 1. Blood JSON input into Dataframe
+def bloodjson_to_df(json, mcc_list):
+    df = pd.DataFrame()
+    dict_cols = ['Baseline Visit', '6-Wks Post-Op', '3-Mo Post-Op']
+    for mcc in mcc_list:
+        if mcc in json.keys():
+            m = json[mcc]
+        if str(mcc) in json.keys():
+            mcc=str(mcc)
+            m = json[mcc]
+        if m:
+            mdf = pd.DataFrame.from_dict(m, orient='index')
+            mdf.dropna(subset=['screening_site'], inplace=True)
+            mdf.reset_index(inplace=True)
+            mdf['MCC'] = mcc
+            for c in dict_cols:
+                if c in mdf.columns:
+                    col_df = dict_to_col(mdf, ['index','MCC','screening_site'], c,'Visit')
+                    df = pd.concat([df, col_df])
+                    df.reset_index(inplace=True, drop=True)
+    return df
+
+# 2. Clean blood dataframe
+def simplify_blooddata(blood_df):
+    '''Take the raw blood data frame and simplify by dropping columns with the nested dictionaries,
+    and moving visit column to beginning of dataframe.'''
+
+    # Drop baseline dict, 6 week dict, 3 month dict
+    blood_df.drop(['Baseline Visit', '6-Wks Post-Op', '3-Mo Post-Op'], axis=1, inplace=True)
+
+    # move Visit column to beginning of DF
+    move_column_inplace(blood_df, 'Visit', 2)
+
+    return blood_df
+
+def clean_blooddata(blood_df):
+    '''Take the raw subjects data frame and clean it up. Note that apis don't pass datetime columns well, so
+    these should be converted to datetime by the receiver.
+    datetime columns = ['date_of_contact','date_and_time','obtain_date','ewdateterm','sp_surg_date','sp_v1_preop_date','sp_v2_6wk_date','sp_v3_3mo_date']
+    Can convert within a pd.DataFrame using .apply(pd.to_datetime, errors='coerce')'''
+
+    # Convert numeric columns
+    numeric_cols = ['bscp_aliq_cnt','bscp_protocol_dev','bscp_protocol_dev_reason']
+    blood_df[numeric_cols] = blood_df[numeric_cols].apply(pd.to_numeric,errors='coerce')
+
+    # Convert datetime columns
+    datetime_cols = ['bscp_time_blood_draw','bscp_aliquot_freezer_time','bscp_time_centrifuge']
+    blood_df[datetime_cols] = blood_df[datetime_cols].apply(pd.to_datetime,errors='coerce')
+
+    # Add calculated columns
+    # Calculate time to freezer: freezer time - blood draw time
+    blood_df['time_to_freezer'] = blood_df['bscp_aliquot_freezer_time'] - blood_df['bscp_time_blood_draw']
+    blood_df['time_to_freezer_minutes'] = blood_df['time_to_freezer'].dt.components['hours']*60 + blood_df['time_to_freezer'].dt.components['minutes']
+
+    # Calculate time to centrifuge: centrifuge time - blood draw time
+    blood_df['time_to_centrifuge'] = blood_df['bscp_time_centrifuge'] - blood_df['bscp_time_blood_draw']
+    blood_df['time_to_centrifuge_minutes'] = blood_df['time_to_centrifuge'].dt.components['hours']*60 + blood_df['time_to_centrifuge'].dt.components['minutes']
+
+    # Calculate times exist in correct order
+    blood_df['time_values_check'] = (blood_df['time_to_centrifuge_minutes'] < blood_df['time_to_freezer_minutes'] ) & (blood_df['time_to_centrifuge_minutes'] <= 30) & (blood_df['time_to_freezer_minutes'] <= 60)
+
+    # Get 'Site' column that combines MCC and screening site
+    blood_df['Site'] = 'MCC' + blood_df['MCC'].astype(str) + ': ' + blood_df['screening_site']
+
+    # Convert Deviation Numeric Values to Text
+    deviation_dict = {1:'Unable to obtain blood sample -technical reason',
+                      2: 'Unable to obtain blood sample -patient related',
+                      3: 'Sample handling/processing error'}
+    deviation_df = pd.DataFrame.from_dict(deviation_dict, orient='index')
+    deviation_df.reset_index(inplace=True)
+    deviation_df.columns = ['bscp_protocol_dev_reason','Deviation Reason']
+    blood_df = blood_df.merge(deviation_df, on='bscp_protocol_dev_reason', how='left')
+
+    # Clean column names for more human friendly usage
+    rename_dict = {'index':'ID',
+                   'screening_site':'Screening Site',
+                   'bscp_deg_of_hemolysis':'Hemolysis'}
+
+    # rename index col as ID
+    blood_df = blood_df.rename(columns=rename_dict)
+
+    return blood_df
+
+# ----------------------------------------------------------------------------
+# OTHER APIS?
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# GENERATE DICTIONARIES FOR API OUTPUTS (using functions above)
+# ----------------------------------------------------------------------------
+
+def process_subjects(subjects_raw,screening_sites, display_terms_dict, display_terms_dict_multi):
+            subjects_raw_df = combine_mcc_json(subjects_raw)
+
+            # Get and Clean Subjects data
+            subjects_cleaned = create_clean_subjects(subjects_raw_df, screening_sites, display_terms_dict, display_terms_dict_multi)
+            consented = get_consented_subjects(subjects_cleaned)
+
+            # Extract adverse events data
+            adverse_effects_raw = extract_adverse_effects_data(subjects_raw_df)
+            adverse_events = clean_adverse_events(adverse_effects_raw, consented, display_terms_dict_multi)
+
+            subjects_api_data ={
+                    'subjects_cleaned': subjects_cleaned.to_dict('records'),
+                    'consented': consented.to_dict('records'),
+                    'adverse_events': adverse_events.to_dict('records')
+            }
+            return subjects_api_data

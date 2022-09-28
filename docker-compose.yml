@@ -19,29 +19,50 @@ services:
       - ./datastore/.env
     networks:
       - datastore_net
-  datastore_client:
-    build: ./datastore_client
-    depends_on:
-      - "datastore"
-    ports:
-      - 8050:8050
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    stdin_open: true
-    tty: true
-    command: ["gunicorn", "--reload", "-b :8050",  "-t 90", "app:server"]
-    container_name: datastore_client
-    hostname: datastore_client
-    volumes:
-      - ./datastore_client/src:/app
-    env_file:
-      - ./datastore_client/.env
-    networks:
-      - datastore_net
+  # datastore_client:
+  #   build: ./datastore_client
+  #   depends_on:
+  #     - "datastore"
+  #   ports:
+  #     - 8050:8050
+  #   dns:
+  #     - 8.8.8.8
+  #     - 8.8.4.4
+  #   stdin_open: true
+  #   tty: true
+  #   command: ["gunicorn", "--reload", "-b :8050",  "-t 90", "app:server"]
+  #   container_name: datastore_client
+  #   hostname: datastore_client
+  #   volumes:
+  #     - ./datastore_client/src:/app
+  #   env_file:
+  #     - ./datastore_client/.env
+  #   networks:
+  #     - datastore_net
+  # datastore_client_template:
+  #   build: ./datastore_client_template
+  #   depends_on:
+  #     - "datastore"
+  #   ports:
+  #     - 8040:8050
+  #   dns:
+  #     - 8.8.8.8
+  #     - 8.8.4.4
+  #   stdin_open: true
+  #   tty: true
+  #   command: ["gunicorn", "--reload", "-b :8050",  "-t 90", "app:server"]
+  #   container_name: datastore_client_template
+  #   hostname: datastore_client_template
+  #   volumes:
+  #     - ./datastore_client_template/src:/app
+  #   env_file:
+  #     - ./datastore_client_template/.env
+  #   networks:
+  #     - datastore_net
 
 networks:
   datastore_net:
+    name: datastore_net
     driver: bridge
     ipam:
       driver: default
